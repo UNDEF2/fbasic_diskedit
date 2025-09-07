@@ -171,23 +171,27 @@ impl D77 {
 }
 
 struct FBasicFS {
-    // cluster_chains[];
+    fat: [u8; 152]
+}
+
+fn cluster_to_chs(cluster: u8) -> (u8, u8, u8) {
+    let c = 2 + cluster/4;
+    let h = (cluster/2)%2;
+    let s = 1 + 8*(cluster%2);
+    (c, h, s)
 }
 
 fn parse_fs(img: &D77) -> Result<FBasicFS, Box<dyn Error>> {
     // FAT is always side 0, track 1, sector 1
-    /*
-    for s in &img.tracks[1] {
-        if s.h == 0 && s.c == 1 && s.r == 1 {
-            if s.n < 1 {
-                return Err("FAT sector too small".into());
-            }
-            let mut fs = FBasicFS{};
-            return Ok(fs);
-        }
+    let Some(s) = img.find_sector(1, 0, 1) else {
+        return Err("Could not locate FAT".into());
+    };
+    if s.n != 1 {
+        return Err("Incorrect FAT sector N".into());
     }
-    Err("Could not locate FAT".into())
-     */
+    let fs = FBasicFS {
+        fat: s.data[5..157].try_into().unwrap()
+    };
     for i in 3..32 {
         let c = 1;
         let h = i/16;
@@ -198,31 +202,36 @@ fn parse_fs(img: &D77) -> Result<FBasicFS, Box<dyn Error>> {
         if s.n != 1 {
             return Err("Incorrect directory sector N".into());
         }
-        for j in (0..256).step_by(32) {
+        for j in (0..0x100).step_by(0x20) {
             if s.data[j] == 0xFF {
                 continue;
             }
-            let print_name = match str::from_utf8(&s.data[j..j+8]) {
-                Ok(s) => s,
-                _ => "[unprintable]"
-            };
+            let print_name = str::from_utf8(&s.data[j..j+0x08])
+                .unwrap_or("[unprintable]");
             let filetype = s.data[j + 0x0B];
             let mode = match s.data[j + 0x0C] {
                 0x00 => 'B',
                 0xFF => 'A',
                 _ => return Err("Unrecognized file mode".into())
             };
-            // TODO: speculative
+            // TODO: speculative, though it seems correct
             let access = match s.data[j + 0x0D] {
                 0x00 => 'S',
                 0xFF => 'R',
                 _ => return Err("Unrecognized file access mode".into())
 
             };
-            println!("{print_name} {filetype} {mode} {access}");
+            let mut cluster = s.data[j+0xe];
+            let mut size = 0;
+            while cluster < 0xC0 {
+                cluster = fs.fat[cluster as usize];
+                size += 1;
+            }
+            println!("{print_name} {filetype} {mode} {access} {size}");
+
         }
     }
-    todo!()
+    Ok(fs)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
