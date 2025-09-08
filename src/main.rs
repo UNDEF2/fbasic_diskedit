@@ -334,19 +334,14 @@ impl FBasicFS {
         Ok(fs)
     }
 
-    fn get_chain_size(&self, head: u8) -> usize {
-        // TODO: is this how a zero-size file is encoded?
-        assert!(head <= 0xC0);
-        if head == 0xC0 {
-            return 0;
-        }
+    fn get_chain_size(&self, head: u8) -> u8 {
         let mut cluster = head;
         let mut size = 0;
         while cluster < 0xC0 {
             cluster = self.fat[cluster as usize];
-            size += 8;
+            size += 1;
         }
-        return size + 1 + (cluster&0x07) as usize;
+        size
     }
 
     fn files(&self) {
@@ -359,7 +354,7 @@ impl FBasicFS {
             if f.name[0] == 0x00 {
                 continue;
             }
-            let size = self.get_chain_size(f.cluster)/8;
+            let size = self.get_chain_size(f.cluster);
             println!("{f} {size}");
         }
         let free = self.fat.iter().filter(|&n| *n == 0xFF).count();
@@ -458,7 +453,7 @@ impl FBasicFS {
         if sectors == 0 {
             head = 0xC0;
         } else {
-            let rem = sectors&7;
+            let rem = sectors&0x07;
             let used_in_last = if rem == 0 { 8 } else { rem as u8};
             self.fat[tail] = 0xC0 | (used_in_last - 1);
         }
@@ -494,16 +489,12 @@ impl FBasicFS {
         // pad to nearest 16B boundary with 0, then 0xFF the rest of the way.
         // this seems to be what the real F-BASIC does
         let align_16 = (data.len() + 0xF) & !0xF;
-        if data.len() != align_16 {
-            data.resize(align_16, 0);
-        }
+        data.resize(align_16, 0);
         // TODO: define elsewhere
         const SECTOR_SIZE: usize = 256;
         const CLUSTER_SIZE: usize = SECTOR_SIZE*8;
         let align_sector = (data.len() + SECTOR_SIZE-1) & !(SECTOR_SIZE-1);
-        if data.len() != align_sector {
-            data.resize(align_sector, 0xFF);
-        }
+        data.resize(align_sector, 0xFF);
 
         // since we'll just bail without writing if there isn't enough
         // space, it's safe to delete the existing file first if it
