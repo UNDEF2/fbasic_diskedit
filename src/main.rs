@@ -372,7 +372,7 @@ impl FBasicFS {
         while cluster < 0xC0 {
             let (c, h, s) = Self::cluster_to_chs(cluster);
             cluster = self.fat[cluster as usize];
-            let limit = if cluster >= 0xC0 { (cluster & 0x07) + 1} else { 8 };
+            let limit = if cluster >= 0xC0 { (cluster&0x07) + 1} else { 8 };
             for i in 0..limit {
                 let Some(s) = d77.find_sector(c, h, s+i) else {
                     return Err(
@@ -453,9 +453,10 @@ impl FBasicFS {
         if sectors == 0 {
             head = 0xC0;
         } else {
-            let rem = sectors&0x07;
-            let used_in_last = if rem == 0 { 8 } else { rem as u8};
-            self.fat[tail] = 0xC0 | (used_in_last - 1);
+            let rem = (sectors&0x07) as u8;
+            // want 0 (meaning 8) to wrap to 7
+            let used_in_last = rem.wrapping_sub(1) & 0x07;
+            self.fat[tail] = 0xC0 | used_in_last;
         }
 
         Ok(head as u8)
