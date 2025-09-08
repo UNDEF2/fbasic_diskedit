@@ -479,7 +479,7 @@ impl FBasicFS {
         let mode = match mode {
             'B' => 0x00,
             'A' => {
-                if let Some(x) = data.iter().position(|&x| x == 0) {
+                if let Some(x) = data.iter().position(|&x| x == 0x1A) {
                     println!("Warning: ASCII-mode file contains SUB. \
                               Truncating");
                     data.truncate(x);
