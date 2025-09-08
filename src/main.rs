@@ -460,7 +460,7 @@ impl FBasicFS {
         } else {
             let rem = sectors&7;
             let used_in_last = if rem == 0 { 8 } else { rem as u8};
-            self.fat[tail] = 0xC0 | used_in_last;
+            self.fat[tail] = 0xC0 | (used_in_last - 1);
         }
 
         Ok(head as u8)
