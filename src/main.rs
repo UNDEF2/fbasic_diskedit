@@ -496,6 +496,10 @@ impl FBasicFS {
         let align_sector = (data.len() + SECTOR_SIZE-1) & !(SECTOR_SIZE-1);
         data.resize(align_sector, 0xFF);
 
+        // data size is now sector-aligned
+        assert!(data.len()%SECTOR_SIZE == 0);
+        let num_sectors = data.len()/SECTOR_SIZE;
+
         // since we'll just bail without writing if there isn't enough
         // space, it's safe to delete the existing file first if it
         // already exists, giving us the best chance of success
@@ -503,7 +507,7 @@ impl FBasicFS {
             Some(x) => x,
             None => self.alloc_dir()?
         };
-        let num_sectors = (data.len() + SECTOR_SIZE - 1)/SECTOR_SIZE;
+
         let chain = self.alloc_chain(num_sectors)?;
         let f = &mut self.files[dir as usize];
         f.name.copy_from_slice(format!("{name:<8}").as_bytes());
@@ -519,9 +523,9 @@ impl FBasicFS {
         };
         f.cluster = chain;
         f.dirty = true;
+
         let mut cluster = chain;
         let mut i = 0;
-        assert!(data.len()%SECTOR_SIZE == 0);
         while i < data.len() {
             let (c, h, s) = Self::cluster_to_chs(cluster);
             let sec_in_cluster = s + ((i/SECTOR_SIZE)%8) as u8;
