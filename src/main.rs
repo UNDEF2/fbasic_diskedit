@@ -366,7 +366,6 @@ impl FBasicFS {
             .find(|x| x.name.trim_ascii_end() == name.as_bytes()) else {
                 return Err("File not found".into());
             };
-
         let mut cluster = f.cluster;
         let mut out: Vec<u8> = Vec::new();
         while cluster < 0xC0 {
@@ -525,7 +524,7 @@ impl FBasicFS {
         assert!(data.len()%SECTOR_SIZE == 0);
         while i < data.len() {
             let (c, h, s) = Self::cluster_to_chs(cluster);
-            let sec_in_cluster = s + ((i/CLUSTER_SIZE)%8) as u8;
+            let sec_in_cluster = s + ((i/SECTOR_SIZE)%8) as u8;
             let sector = d77.find_sector_mut(c, h, sec_in_cluster).unwrap();
             sector.data.copy_from_slice(&data[i..i+SECTOR_SIZE]);
             i += SECTOR_SIZE;
