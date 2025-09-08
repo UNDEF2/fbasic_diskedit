@@ -397,7 +397,8 @@ impl FBasicFS {
     }
 
     // Return a directory handle in case we want to replace in-place
-    fn kill(&mut self, name: &str) -> Result<Option<u8>, Box<dyn Error>> {
+    fn kill(&mut self, d77: &mut D77, name: &str)
+            -> Result<Option<u8>, Box<dyn Error>> {
         let Some((i, f)) = self.files.iter().enumerate()
             .find(|(_, x)| x.name.trim_ascii_end() == name.as_bytes()) else {
                 return Ok(None);
@@ -412,6 +413,7 @@ impl FBasicFS {
         let f = &mut self.files[i];
         f.name[0] = 0;
         f.dirty = true;
+        self.write_fs(d77);
         Ok(Some(i as u8))
     }
 
@@ -504,7 +506,7 @@ impl FBasicFS {
         // since we'll just bail without writing if there isn't enough
         // space, it's safe to delete the existing file first if it
         // already exists, giving us the best chance of success
-        let dir = match self.kill(&name)? {
+        let dir = match self.kill(d77, &name)? {
             Some(x) => x,
             None => self.alloc_dir()?
         };
@@ -537,6 +539,7 @@ impl FBasicFS {
                 cluster = self.fat[cluster as usize];
             }
         }
+        self.write_fs(d77);
         Ok(())
     }
 
@@ -612,8 +615,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             fs::write(&opts.image, img)?;
         },
         Commands::Kill{name} => {
-            fbfs.kill(&name)?;
-            fbfs.write_fs(&mut d77);
+            fbfs.kill(&mut d77, &name)?;
             let img = d77.write()?;
             fs::write(&opts.image, img)?;
         }
