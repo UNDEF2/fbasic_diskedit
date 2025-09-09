@@ -51,29 +51,23 @@ struct D77 {
 
 impl D77 {
     fn from_raw(img: &[u8]) -> Result<D77, Box<dyn Error>> {
-        if img.len() < 0x2b0 {
+        if img.len() < 0x2B0 {
             return Err("Image too short".into());
         }
+
+        let name = &img[0..17];
+        if !name.contains(&0) {
+            return Err("Invalid image name".into());
+        }
+
         let mut d77 = D77 {
-            name: [0;17],
+            name: name.try_into().unwrap(),
             raw_mode: false,
             write_protected: false,
             disk_type: DiskType::T2DD,
             disk_size: 0,
             tracks: [(); 164].map(|_| Vec::new())
         };
-        let mut seen_terminator = false;
-        for i in 0..d77.name.len() {
-            let c = img[i];
-            d77.name[i] = c;
-            if c == 0 {
-                seen_terminator = true;
-                break;
-            }
-        }
-        if !seen_terminator {
-            return Err("Invalid image name".into());
-        }
 
         d77.raw_mode = match img[0x11] {
             0x00 => false,
@@ -381,8 +375,8 @@ impl FBasicFS {
                 out.extend(&s.data);
             }
         };
-        // If the output is ASCII, we should truncate it to the 0x1A marker
-        if f.mode == 0xFF {
+        // If the output is ASCII BASIC, truncate it to the 0x1A marker
+        if f.filetype == 0 && f.mode == 0xFF {
             if let Some(i) = out.iter().position(|&x| x == 0x1A) {
                 out.truncate(i);
             } else {
