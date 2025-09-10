@@ -468,13 +468,15 @@ impl FBasicFS {
         let mode = match mode {
             'B' => 0x00,
             'A' => {
-                if let Some(x) = data.iter().position(|&x| x == 0x1A) {
-                    println!("Warning: ASCII-mode file contains SUB. \
-                              Truncating");
-                    data.truncate(x);
+                if filetype == 0 {
+                    if let Some(x) = data.iter().position(|&x| x == 0x1A) {
+                        println!("Warning: ASCII-mode file contains SUB. \
+                                  Truncating");
+                        data.truncate(x);
+                    }
+                    // now add our SUB terminator
+                    data.push(0x1A);
                 }
-                // now add our SUB terminator
-                data.push(0x1A);
                 0xFF
             },
             _ => return Err("Invalid mode".into()),
