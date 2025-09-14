@@ -159,7 +159,12 @@ impl D77 {
 
     fn find_sector(&self, c: u8, h: u8, r: u8) -> Option<&Sector> {
         assert!(h < 2);
-        assert!(c < 40);
+        let lim = match self.disk_type {
+            DiskType::T2D => 40,
+            DiskType::T2DD => 80,
+            DiskType::T2HD => unreachable!(),
+        };
+        assert!(c < lim);
         // TODO: assumes linear track layout
         for s in &self.tracks[(c*2 + h) as usize] {
             if s.c == c && s.h == h && s.r == r {
@@ -267,16 +272,24 @@ impl fmt::Display for File {
 }
 
 struct FBasicFS {
+    dd: bool,
     fat: [u8; 152],
     files: Vec<File>
 }
 
 impl FBasicFS {
-    fn cluster_to_chs(cluster: u8) -> (u8, u8, u8) {
-        let c = 2 + cluster/4;
-        let h = (cluster/2)%2;
-        let s = 1 + 8*(cluster%2);
-        (c, h, s)
+    fn cluster_to_chs(&self, cluster: u8) -> (u8, u8, u8) {
+        if !self.dd {
+            let c = 2 + cluster/4;
+            let h = (cluster/2)%2;
+            let s = 1 + 8*(cluster%2);
+            (c, h, s)
+        } else {
+            let c = 2 + cluster/2;
+            let h = cluster%2;
+            let s = 1;
+            (c, h, s)
+        }
     }
 
     fn dir_index_to_pos(idx: u8) -> (u8, u8, u8, u8) {
@@ -300,7 +313,15 @@ impl FBasicFS {
         if s.n != 1 {
             return Err("Incorrect FAT sector N".into());
         }
+
+        let dd = match img.disk_type {
+            DiskType::T2D => false,
+            DiskType::T2DD => true,
+            _ => return Err("Unsupported disk type".into())
+        };
+
         let mut fs = FBasicFS {
+            dd: dd,
             fat: s.data[5..157].try_into().unwrap(),
             files: Vec::new()
         };
@@ -362,10 +383,12 @@ impl FBasicFS {
             };
         let mut cluster = f.cluster;
         let mut out: Vec<u8> = Vec::new();
+        let spc = if self.dd {16} else {8};
+        let mask = spc - 1;
         while cluster < 0xC0 {
-            let (c, h, s) = Self::cluster_to_chs(cluster);
+            let (c, h, s) = self.cluster_to_chs(cluster);
             cluster = self.fat[cluster as usize];
-            let limit = if cluster >= 0xC0 { (cluster&0x07) + 1} else { 8 };
+            let limit = if cluster >= 0xC0 { (cluster&mask) + 1} else { spc };
             for i in 0..limit {
                 let Some(s) = d77.find_sector(c, h, s+i) else {
                     return Err(
@@ -417,7 +440,9 @@ impl FBasicFS {
     }
 
     fn alloc_chain(&mut self, sectors: usize) -> Result<u8, Box<dyn Error>> {
-        let clusters = (sectors+7)/8;
+        let shift = if self.dd { 4 } else { 3 };
+        let sec_mask = (0x1 << shift) - 1;
+        let clusters = (sectors + sec_mask) >> shift;
         let free = self.fat.iter().filter(|&n| *n == 0xFF).count();
         if free < clusters {
             return Err("Insufficient space".into());
@@ -446,9 +471,9 @@ impl FBasicFS {
         if sectors == 0 {
             head = 0xC0;
         } else {
-            let rem = (sectors&0x07) as u8;
+            let rem = (sectors&sec_mask) as u8;
             // want 0 (meaning 8) to wrap to 7
-            let used_in_last = rem.wrapping_sub(1) & 0x07;
+            let used_in_last = rem.wrapping_sub(1) & sec_mask as u8;
             self.fat[tail] = 0xC0 | used_in_last;
         }
 
@@ -488,7 +513,10 @@ impl FBasicFS {
         data.resize(align_16, 0);
         // TODO: define elsewhere
         const SECTOR_SIZE: usize = 256;
-        const CLUSTER_SIZE: usize = SECTOR_SIZE*8;
+        let sectors_per_cluster: usize = if self.dd {16} else {8};
+        let cluster_mask = SECTOR_SIZE*sectors_per_cluster - 1;
+        let sector_mask = sectors_per_cluster - 1;
+
         let align_sector = (data.len() + SECTOR_SIZE-1) & !(SECTOR_SIZE-1);
         data.resize(align_sector, 0xFF);
 
@@ -523,12 +551,12 @@ impl FBasicFS {
         let mut cluster = chain;
         let mut i = 0;
         while i < data.len() {
-            let (c, h, s) = Self::cluster_to_chs(cluster);
-            let sec_in_cluster = s + ((i/SECTOR_SIZE)%8) as u8;
+            let (c, h, s) = self.cluster_to_chs(cluster);
+            let sec_in_cluster = s + ((i/SECTOR_SIZE)&sector_mask) as u8;
             let sector = d77.find_sector_mut(c, h, sec_in_cluster).unwrap();
             sector.data.copy_from_slice(&data[i..i+SECTOR_SIZE]);
             i += SECTOR_SIZE;
-            if i%CLUSTER_SIZE == 0 {
+            if i&cluster_mask == 0 {
                 cluster = self.fat[cluster as usize];
             }
         }
