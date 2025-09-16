@@ -1,9 +1,10 @@
 // Filesystem info based on YS-DOS source.
 
-use std::path::PathBuf;
 use std::error::Error;
 use std::fmt;
 use std::fs;
+use std::io::prelude::*;
+use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
@@ -601,7 +602,7 @@ enum Commands {
     Files,
     Read {
         name: String,
-        out_dir: PathBuf,
+        out_dir: PathBuf
     },
     Write {
         in_dir: PathBuf,
@@ -612,6 +613,13 @@ enum Commands {
         mode: char,
         #[arg(short, default_value_t = 'S')]
         access: char
+    },
+    Savem {
+        in_dir: PathBuf,
+        name: String,
+        base: String,
+        end: String,
+        entry: String
     },
     Kill {
         name: String
@@ -635,6 +643,25 @@ fn main() -> Result<(), Box<dyn Error>> {
             let img = d77.write()?;
             fs::write(&opts.image, img)?;
         },
+        Commands::Savem{in_dir, name, base, end, entry} => {
+            let base = u16::from_str_radix(&base, 16)?;
+            let end = u16::from_str_radix(&end, 16)?;
+            let entry = u16::from_str_radix(&entry, 16)?;
+            let size: u16 = (end as u32 - base as u32 + 1).try_into()?;
+            let mut executable = vec![0x00];
+            executable.extend_from_slice(&size.to_be_bytes());
+            executable.extend_from_slice(&base.to_be_bytes());
+            let mut f = fs::File::open(in_dir)?;
+            let nread = f.read_to_end(&mut executable)?;
+            if nread < size as usize{
+                return Err("Size too large for file".into());
+            }
+            executable.extend_from_slice(&[0xFF, 0x00, 0x00]);
+            executable.extend_from_slice(&entry.to_be_bytes());
+            fbfs.write(&mut d77, &name, executable, 2, 'B', 'S')?;
+            let img = d77.write()?;
+            fs::write(&opts.image, img)?;
+        }
         Commands::Kill{name} => {
             fbfs.kill(&mut d77, &name)?;
             let img = d77.write()?;
