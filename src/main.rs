@@ -274,7 +274,7 @@ impl fmt::Display for File {
 
 struct FBasicFS {
     dd: bool,
-    fat: [u8; 152],
+    fat: Vec<u8>,
     files: Vec<File>
 }
 
@@ -321,9 +321,10 @@ impl FBasicFS {
             _ => return Err("Unsupported disk type".into())
         };
 
+        let fat_size = if dd { 156 } else { 152 };
         let mut fs = FBasicFS {
             dd: dd,
-            fat: s.data[5..157].try_into().unwrap(),
+            fat: Vec::from(&s.data[5..5+fat_size]),
             files: Vec::new()
         };
         for i in 3..32 {
@@ -567,7 +568,8 @@ impl FBasicFS {
 
     fn write_fs(&self, d77: &mut D77) {
         let s = d77.find_sector_mut(1, 0, 1).unwrap();
-        s.data[5..157].copy_from_slice(&self.fat);
+        let fat_size = if self.dd { 156 } else { 152 };
+        s.data[5..5+fat_size].copy_from_slice(&self.fat);
         for (idx, f) in self.files.iter().enumerate() {
             if f.dirty {
                 let (c, h, r, i) = Self::dir_index_to_pos(idx as u8);
